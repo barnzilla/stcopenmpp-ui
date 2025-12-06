@@ -89,3 +89,19 @@ a:hover {
 .table td, .table th {
   vertical-align: middle !important;
 }
+
+/* Vertically center table content */
+.table td,
+.table th {
+  vertical-align: middle !important;
+}
+
+/* Selected row highlight */
+.table-row-selected td {
+  background-color: #e7f1fb !important;
+}
+
+/* Force Name column to widen but not overflow */
+.table td:first-child {
+  width: 50%;
+}
