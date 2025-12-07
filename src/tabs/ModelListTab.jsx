@@ -3,17 +3,16 @@ import { Row, Col, InputGroup, Form, Button, Spinner } from "react-bootstrap";
 
 import DataTable from "../components/DataTable";
 import PaginationComponent from "../components/PaginationComponent";
-import ModelDetailPanel from "../components/ModelDetailPanel";
 import { useFetchData } from "../hooks/useFetchData";
 import { buildColumns } from "../utils/columnBuilder";
 
-const API_URL = "http://localhost:4040/api/model-list";
+const API_URL = "http://localhost:4040/api/model-list/text";
 const DEFAULT_PAGE_SIZE = 10;
 
 export default function ModelListTab({
+  setActiveTab,
   selectedModel,
   setSelectedModel,
-  setActiveTab,
 }) {
   const { data: rawData, loading, error, refetch } = useFetchData(API_URL);
 
@@ -22,18 +21,20 @@ export default function ModelListTab({
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [sortBy, setSortBy] = useState({ key: "Name", direction: "asc" });
 
-  // Extract model data
-  const data = useMemo(
-    () => (Array.isArray(rawData) ? rawData.map((r) => r.Model) : []),
-    [rawData]
-  );
+  const data = useMemo(() => {
+    if (!Array.isArray(rawData)) return [];
+
+    return rawData.map((r) => ({
+      ...r.Model,
+      DescrNote: r.DescrNote   // 👈 KEEP note + description
+    }));
+  }, [rawData]);
+
 
   const columns = useMemo(() => buildColumns(data), [data]);
 
-  // Filtering + sorting
   const processedRows = useMemo(() => {
     if (!Array.isArray(data)) return [];
-
     let rows = data;
 
     const q = query.trim().toLowerCase();
@@ -55,7 +56,6 @@ export default function ModelListTab({
     return rows;
   }, [data, query, sortBy]);
 
-  // Pagination
   const totalCount = processedRows.length;
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
 
@@ -68,9 +68,9 @@ export default function ModelListTab({
     return processedRows.slice(start, start + pageSize);
   }, [processedRows, page, pageSize]);
 
-  // Row click → just update detail panel (no tab change)
   const handleRowClick = (row) => {
     setSelectedModel(row);
+    setActiveTab("details");
   };
 
   const handleSort = (key) => {
@@ -82,7 +82,6 @@ export default function ModelListTab({
 
   return (
     <>
-      {/* API endpoint + Refresh row */}
       <Row className="align-items-center mb-3">
         <Col>
           <div style={{ fontSize: 12, color: "#666" }} className="ps-1">
@@ -96,7 +95,7 @@ export default function ModelListTab({
           <Button
             onClick={() => {
               refetch();
-              setSelectedModel(null); // reset panel
+              setSelectedModel(null);   // 👈 reset selection
             }}
             disabled={loading}
             variant="secondary"
@@ -106,7 +105,6 @@ export default function ModelListTab({
         </Col>
       </Row>
 
-      {/* FILTER + PAGE SIZE + COUNT */}
       <Row className="mb-3">
         <Col md={4}>
           <InputGroup>
@@ -140,14 +138,17 @@ export default function ModelListTab({
           </Form.Select>
         </Col>
 
-        <Col md={4} className="text-md-end d-flex justify-content-end align-items-center">
+        <Col
+          md={4}
+          className="text-md-end d-flex align-items-center justify-content-md-end"
+        >
           <div style={{ fontSize: 14 }}>
             {totalCount} rows • Page {page} of {totalPages}
           </div>
         </Col>
+
       </Row>
 
-      {/* MAIN SPLIT PANE */}
       {loading ? (
         <div className="d-flex justify-content-center p-5">
           <Spinner animation="border" />
@@ -155,29 +156,22 @@ export default function ModelListTab({
       ) : error ? (
         <div className="p-4 text-danger">{error}</div>
       ) : (
-        <Row>
-          {/* LEFT — MODEL LIST */}
-          <Col md={5} className="border-end pe-0">
-            <DataTable
-              rows={pageRows}
-              columns={columns}
-              sortBy={sortBy}
-              setSortBy={handleSort}
-              onRowClick={handleRowClick}
-              selectedModel={selectedModel}
-            />
-            <PaginationComponent
-              page={page}
-              setPage={setPage}
-              totalPages={totalPages}
-            />
-          </Col>
+        <>
+          <DataTable
+            rows={pageRows}
+            columns={columns}
+            sortBy={sortBy}
+            setSortBy={handleSort}
+            onRowClick={handleRowClick}
+            selectedModel={selectedModel}
+          />
 
-          {/* RIGHT — DETAILS */}
-          <Col md={7} className="ps-4">
-            <ModelDetailPanel model={selectedModel} />
-          </Col>
-        </Row>
+          <PaginationComponent
+            page={page}
+            setPage={setPage}
+            totalPages={totalPages}
+          />
+        </>
       )}
     </>
   );
