@@ -13,6 +13,7 @@ export default function ModelListTab({
   setActiveTab,
   selectedModel,
   setSelectedModel,
+  checkServer
 }) {
   const { data: rawData, loading, error, refetch } = useFetchData(API_URL);
 
@@ -84,18 +85,27 @@ export default function ModelListTab({
     <>
       <Row className="align-items-center mb-3">
         <Col>
-          <div style={{ fontSize: 12, color: "#666" }} className="ps-1">
-            API endpoint:{" "}
-            <a href={API_URL} target="_blank" rel="noreferrer">
-              {API_URL}
-            </a>
-          </div>
+          <details style={{ fontSize: 12 }} className="ms-2">
+            <summary style={{ cursor: "pointer" }}>API endpoints</summary>
+
+            <div className="ms-3 mt-1">
+              {API_URL && (
+                <div>
+                  •{" "}
+                  <a href={API_URL} target="_blank" rel="noreferrer">
+                    {API_URL}
+                  </a>
+                </div>
+              )}
+            </div>
+          </details>
         </Col>
         <Col xs="auto">
           <Button
             onClick={() => {
               refetch();
-              setSelectedModel(null);   // 👈 reset selection
+              if (checkServer) checkServer();  // 👈 trigger health check ON DEMAND
+              setSelectedModel(null);
             }}
             disabled={loading}
             variant="secondary"
@@ -132,7 +142,7 @@ export default function ModelListTab({
           >
             {[5, 10, 20, 50, 100].map((n) => (
               <option key={n} value={n}>
-                {n} rows per page
+                {n} models per page
               </option>
             ))}
           </Form.Select>
@@ -143,7 +153,7 @@ export default function ModelListTab({
           className="text-md-end d-flex align-items-center justify-content-md-end"
         >
           <div style={{ fontSize: 14 }}>
-            {totalCount} rows • Page {page} of {totalPages}
+            {totalCount} models • Page {page} of {totalPages}
           </div>
         </Col>
 

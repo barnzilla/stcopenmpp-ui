@@ -89,3 +89,8 @@ a:hover {
 .table td, .table th {
   vertical-align: middle !important;
 }
+
+.table-row-selected > td,
+.table-row-selected > th {
+  background-color: #E8F0F7 !important;
+}
