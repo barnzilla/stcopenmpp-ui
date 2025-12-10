@@ -13,7 +13,8 @@ export default function ModelListTab({
   setActiveTab,
   selectedModel,
   setSelectedModel,
-  checkServer
+  checkServer,
+  showAlert     // 🔥 now accepted here
 }) {
   const { data: rawData, loading, error, refetch } = useFetchData(API_URL);
 
@@ -22,15 +23,17 @@ export default function ModelListTab({
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [sortBy, setSortBy] = useState({ key: "Name", direction: "asc" });
 
+  // -------------------------------
+  // Data Transform
+  // -------------------------------
   const data = useMemo(() => {
     if (!Array.isArray(rawData)) return [];
 
     return rawData.map((r) => ({
       ...r.Model,
-      DescrNote: r.DescrNote   // 👈 KEEP note + description
+      DescrNote: r.DescrNote
     }));
   }, [rawData]);
-
 
   const columns = useMemo(() => buildColumns(data), [data]);
 
@@ -69,6 +72,9 @@ export default function ModelListTab({
     return processedRows.slice(start, start + pageSize);
   }, [processedRows, page, pageSize]);
 
+  // ---------------------------------------
+  // Handle table click → Switch to details tab
+  // ---------------------------------------
   const handleRowClick = (row) => {
     setSelectedModel(row);
     setActiveTab("details");
@@ -81,8 +87,25 @@ export default function ModelListTab({
     });
   };
 
+  // ---------------------------------------
+  //  🔥 Health Check on Refresh ONLY
+  // ---------------------------------------
+  const handleRefreshClick = async () => {
+    refetch();
+
+    if (checkServer) {
+      const ok = await checkServer();
+      if (!ok && showAlert) {
+        showAlert("The OpenM++ web service is not running.", "danger");
+      }
+    }
+
+    setSelectedModel(null);
+  };
+
   return (
     <>
+      {/* API + Refresh Row */}
       <Row className="align-items-center mb-3">
         <Col>
           <details style={{ fontSize: 12 }} className="ms-2">
@@ -100,21 +123,16 @@ export default function ModelListTab({
             </div>
           </details>
         </Col>
+
         <Col xs="auto">
-          <Button
-            onClick={() => {
-              refetch();
-              if (checkServer) checkServer();  // 👈 trigger health check ON DEMAND
-              setSelectedModel(null);
-            }}
-            disabled={loading}
-            variant="secondary"
-          >
-            Refresh
+          
+          <Button variant="secondary" disabled={loading} onClick={handleRefreshClick}>
+            {loading ? <Spinner size="sm" animation="border" /> : "Refresh"}
           </Button>
         </Col>
       </Row>
 
+      {/* FILTER + PAGE SIZE + COUNT */}
       <Row className="mb-3">
         <Col md={4}>
           <InputGroup>
@@ -156,9 +174,9 @@ export default function ModelListTab({
             {totalCount} models • Page {page} of {totalPages}
           </div>
         </Col>
-
       </Row>
 
+      {/* LOADING / ERROR / TABLE */}
       {loading ? (
         <div className="d-flex justify-content-center p-5">
           <Spinner animation="border" />

@@ -6,6 +6,10 @@ import { Container, Tabs, Tab } from "react-bootstrap";
 import ModelListTab from "./tabs/ModelListTab";
 import ModelSelectedTab from "./tabs/ModelSelectedTab";
 
+// 🔔 toast notifications
+import { ToastContainer, toast } from "react-toastify";
+import "react-toastify/dist/ReactToastify.css";
+
 /**
  * Server health hook
  * - NO polling
@@ -20,19 +24,18 @@ function useServerHealth(url) {
 
       if (!res.ok) {
         setServerOnline(false);
-        return;
+        return false;
       }
 
       const json = await res.json();
 
       // Basic structure check for the disk-use endpoint
-      if (json && typeof json === "object" && "IsDiskUse" in json) {
-        setServerOnline(true);
-      } else {
-        setServerOnline(false);
-      }
+      const ok = !!(json && typeof json === "object" && "IsDiskUse" in json);
+      setServerOnline(ok);
+      return ok;
     } catch (err) {
       setServerOnline(false);
+      return false;
     }
   }, [url]);
 
@@ -57,6 +60,33 @@ export default function App() {
   const [activeTab, setActiveTab] = useState("models");
   const [selectedModel, setSelectedModel] = useState(null);
 
+  // 🔔 helper to show alerts from children
+  const showAlert = (message, variant = "info") => {
+    const options = {
+      position: "top-right",
+      autoClose: 5000,
+      hideProgressBar: false,
+      closeOnClick: true,
+      pauseOnHover: true,
+      draggable: true,
+    };
+
+    switch (variant) {
+      case "success":
+        toast.success(message, options);
+        break;
+      case "danger":
+      case "error":
+        toast.error(message, options);
+        break;
+      case "warning":
+        toast.warn(message, options);
+        break;
+      default:
+        toast.info(message, options);
+    }
+  };
+
   // Run ONE health check on initial load
   useEffect(() => {
     checkServer();
@@ -72,47 +102,45 @@ export default function App() {
   }, [selectedModel]);
 
   return (
-    <Container className="p-4">
-      {!serverOnline && (
-        <div className="alert alert-danger mt-4 mb-5" role="alert">
+    <>
+      {/* Toasts visible for all tabs */}
+      <ToastContainer />
+
+      <Container className="p-4">
+
+        <h3 className="mt-3 mb-5">
           <FontAwesomeIcon
-            icon={faExclamationTriangle}
-            className="me-2"
+            icon={faGauge}
+            style={{ marginRight: 8, color: "#000" }}
           />
-          The OpenM++ web service is not running.
-        </div>
-      )}
+          <span className="fw-light">stc</span>
+          <span className="fw-bold">openmpp</span>
+          <sub className="fw-light fs-6">{osName}</sub>
+        </h3>
 
-      <h3 className="mt-3 mb-5">
-        <FontAwesomeIcon
-          icon={faGauge}
-          style={{ marginRight: 8, color: "#000" }}
-        />
-        <span className="fw-light">stc</span>
-        <span className="fw-bold">openmpp</span>
-        <sub className="fw-light fs-6">{osName}</sub>
-      </h3>
+        <Tabs activeKey={activeTab} onSelect={setActiveTab} className="mb-3">
+          <Tab eventKey="models" title="Model list">
+            <ModelListTab
+              setActiveTab={setActiveTab}
+              selectedModel={selectedModel}
+              setSelectedModel={setSelectedModel}
+              checkServer={checkServer}   // list refresh can ping server
+              showAlert={showAlert}       // (optional) if you want alerts there later
+            />
+          </Tab>
 
-      <Tabs activeKey={activeTab} onSelect={setActiveTab} className="mb-3">
-        <Tab eventKey="models" title="Model list">
-          <ModelListTab
-            setActiveTab={setActiveTab}
-            selectedModel={selectedModel}
-            setSelectedModel={setSelectedModel}
-            checkServer={checkServer}  // ✅ Model list refresh can ping server
-          />
-        </Tab>
-
-        <Tab
-          eventKey="details"
-          title={selectedModel ? `Model: ${selectedModel.Name}` : "Model"}
-        >
-          <ModelSelectedTab 
-            selectedModel={selectedModel}
-            checkServer={checkServer}    // ✅ Details tab refresh can ping server too
-          />
-        </Tab>
-      </Tabs>
-    </Container>
+          <Tab
+            eventKey="details"
+            title={selectedModel ? `Model: ${selectedModel.Name}` : "Model"}
+          >
+            <ModelSelectedTab
+              selectedModel={selectedModel}
+              checkServer={checkServer}   // model run can also ping server
+              showAlert={showAlert}       // 🔔 used for run + refresh alerts
+            />
+          </Tab>
+        </Tabs>
+      </Container>
+    </>
   );
 }

@@ -1,35 +1,20 @@
 // ModelSelectedTab.jsx
-import React, {
-  useEffect,
-  useState,
-  useMemo,
-  useRef,
-  useCallback,
-} from "react";
-import {
-  Row,
-  Col,
-  Form,
-  InputGroup,
-  Table,
-  Button,
-  Spinner,
-} from "react-bootstrap";
+import React, { useEffect, useState, useMemo, useRef } from "react";
+import { Row, Col, Form, InputGroup, Table, Button, Spinner } from "react-bootstrap";
 
-export default function ModelSelectedTab({ selectedModel, checkServer }) {
+export default function ModelSelectedTab({ selectedModel, checkServer, showAlert }) {
   const [worksets, setWorksets] = useState([]);
   const [selectedWorkset, setSelectedWorkset] = useState("");
   const [tableTxt, setTableTxt] = useState([]);
   const [filter, setFilter] = useState("");
   const [selectedRows, setSelectedRows] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
+  const [error, setError] = useState("");
+  const [modelMeta, setModelMeta] = useState(null);   // ⭐ for /api/run payload
 
   const headerCheckboxRef = useRef(null);
 
-  //
   // Build dynamic API URLs
-  //
   const API_URL_WORKSET_LIST = selectedModel?.Name
     ? `http://localhost:4040/api/model/${selectedModel.Name}/workset-list`
     : null;
@@ -39,39 +24,42 @@ export default function ModelSelectedTab({ selectedModel, checkServer }) {
     : null;
 
   //
-  // Unified fetch function for Refresh button
+  // Unified refresh: worksets + table metadata
   //
-  const refreshAll = useCallback(async () => {
+  async function refreshAll() {
     if (!selectedModel?.Name) return;
 
     setLoading(true);
-    setError(null);
+    setError("");
 
     try {
+      //
       // 1️⃣ Fetch worksets (scenarios)
-      if (!API_URL_WORKSET_LIST) throw new Error("Workset URL is missing");
+      //
       const wsRes = await fetch(API_URL_WORKSET_LIST);
-
-      if (!wsRes.ok) {
-        throw new Error(`Failed to load scenarios (${wsRes.status})`);
-      }
-
+      if (!wsRes.ok) throw new Error(`workset-list HTTP ${wsRes.status}`);
       const wsJson = await wsRes.json();
+
       setWorksets(wsJson);
+
       if (wsJson.length > 0) {
+        // pick first as default scenario
         setSelectedWorkset(wsJson[0].Name);
+
+        // ⭐ store model metadata for /api/run
+        setModelMeta({
+          ModelName: wsJson[0].ModelName,
+          ModelDigest: wsJson[0].ModelDigest,
+        });
       } else {
-        setSelectedWorkset("");
+        setModelMeta(null);
       }
 
-      // 2️⃣ Fetch TableTxt metadata
-      if (!API_URL_TABLE_LIST) throw new Error("Table metadata URL is missing");
+      //
+      // 2️⃣ Fetch TableTxt metadata (output tables)
+      //
       const txtRes = await fetch(API_URL_TABLE_LIST);
-
-      if (!txtRes.ok) {
-        throw new Error(`Failed to load output tables (${txtRes.status})`);
-      }
-
+      if (!txtRes.ok) throw new Error(`text HTTP ${txtRes.status}`);
       const txtJson = await txtRes.json();
 
       const tables = (txtJson.TableTxt || []).map((t) => ({
@@ -81,33 +69,33 @@ export default function ModelSelectedTab({ selectedModel, checkServer }) {
 
       setTableTxt(tables);
       setSelectedRows([]);
-    } catch (err) {
-      console.error("Refresh failed:", err);
-      setError(err.message || "Failed to load model details.");
-      setTableTxt([]);
-      setWorksets([]);
-      setSelectedWorkset("");
-      setSelectedRows([]);
-    } finally {
-      setLoading(false);
-      // Re-check server health after we hit the endpoints
+
       if (typeof checkServer === "function") {
         checkServer();
       }
+    } catch (err) {
+      console.error("Refresh failed:", err);
+      setError("Failed to refresh model metadata.");
+      if (typeof showAlert === "function") {
+        showAlert("Failed to refresh model data: " + err.message, "danger");
+      }
     }
-  }, [selectedModel, API_URL_WORKSET_LIST, API_URL_TABLE_LIST, checkServer]);
+
+    setLoading(false);
+  }
 
   //
-  // Auto-fetch when a model is selected
+  // Auto-refresh when a model is selected
   //
   useEffect(() => {
     if (selectedModel?.Name) {
       refreshAll();
     }
-  }, [selectedModel, refreshAll]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedModel?.Name]);
 
   //
-  // Filter tables
+  // Filtered tables (search by name or description)
   //
   const filteredTables = useMemo(() => {
     if (!filter.trim()) return tableTxt;
@@ -120,7 +108,7 @@ export default function ModelSelectedTab({ selectedModel, checkServer }) {
   }, [tableTxt, filter]);
 
   //
-  // Toggle a row
+  // Row selection toggle
   //
   const toggleRow = (name) => {
     setSelectedRows((prev) =>
@@ -142,52 +130,125 @@ export default function ModelSelectedTab({ selectedModel, checkServer }) {
   }, [selectedRows, filteredTables]);
 
   //
+  // ⭐ Run model — POST /api/run (using ModelName & ModelDigest)
+  //
+  async function runModel() {
+    if (!modelMeta) {
+      if (typeof showAlert === "function") {
+        showAlert("Model metadata not loaded. Try Refresh first.", "danger");
+      }
+      return;
+    }
+
+    const payload = {
+      ModelName: modelMeta.ModelName,
+      ModelDigest: modelMeta.ModelDigest,
+      Run: {
+        Name: `UI-${modelMeta.ModelName}-${new Date().toISOString()}`,
+        SubCount: 1,
+        SubStart: 0,
+        IsHidden: false,
+      },
+    };
+
+    try {
+      const res = await fetch("http://localhost:4040/api/run", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`HTTP ${res.status}: ${text}`);
+      }
+
+      const json = await res.json();
+      console.log("Model run started:", json);
+
+      if (typeof checkServer === "function") {
+        checkServer();
+      }
+
+      if (typeof showAlert === "function") {
+        showAlert("Model run started successfully.", "success");
+      }
+    } catch (err) {
+      console.error("Failed to run model:", err);
+      if (typeof showAlert === "function") {
+        showAlert("Failed to run model: " + err.message, "danger");
+      }
+    }
+  }
+
+  //
   // If no model selected
   //
-  if (!selectedModel)
+  if (!selectedModel) {
     return <div className="text-muted">No model selected...</div>;
+  }
 
   return (
     <div>
-      {/* API Endpoint + Refresh Row */}
+      {/* API ENDPOINTS + REFRESH */}
+      {/* API ENDPOINTS + ACTION BUTTONS */}
       <Row className="align-items-center mb-3">
+
+        {/* Left side: API endpoints dropdown */}
         <Col>
           <details style={{ fontSize: 12 }} className="ms-2">
             <summary style={{ cursor: "pointer" }}>API endpoints</summary>
 
             <div className="ms-3 mt-1">
-              {API_URL_WORKSET_LIST && (
-                <div>
-                  •{" "}
-                  <a href={API_URL_WORKSET_LIST} target="_blank" rel="noreferrer">
-                    {API_URL_WORKSET_LIST}
-                  </a>
-                </div>
-              )}
-              {API_URL_TABLE_LIST && (
-                <div>
-                  •{" "}
-                  <a href={API_URL_TABLE_LIST} target="_blank" rel="noreferrer">
-                    {API_URL_TABLE_LIST}
-                  </a>
-                </div>
-              )}
+              <div>• <a href={API_URL_WORKSET_LIST} target="_blank">{API_URL_WORKSET_LIST}</a></div>
+              <div>• <a href={API_URL_TABLE_LIST} target="_blank">{API_URL_TABLE_LIST}</a></div>
             </div>
           </details>
         </Col>
 
-        <Col xs="auto">
-          <Button
-            variant="secondary"
-            disabled={loading}
-            onClick={refreshAll}
-          >
-            Refresh
+        {/* Right side: Run + Refresh buttons */}
+        <Col xs="auto" className="d-flex justify-content-end gap-2">
+          <Button variant="primary" onClick={runModel}>
+            Run model
           </Button>
+
+          <Button variant="secondary" disabled={loading} onClick={refreshAll}>
+            {loading ? <Spinner size="sm" animation="border" /> : "Refresh"}
+          </Button>
+        </Col>
+
+      </Row>
+
+
+      {/* TOP CONTROLS */}
+      <Row className="mb-4">
+        <Col md={6}>
+          <label className="fw-bold">Select scenario</label>
+          <Form.Select
+            value={selectedWorkset}
+            onChange={(e) => setSelectedWorkset(e.target.value)}
+          >
+            {worksets.map((ws) => (
+              <option key={ws.Name} value={ws.Name}>
+                {ws.Name}
+              </option>
+            ))}
+          </Form.Select>
+        </Col>
+
+        <Col md={6}>
+          <label className="fw-bold">Select output table(s)</label>
+          <InputGroup>
+            <Form.Control
+              placeholder="Search by name or description..."
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+            />
+          </InputGroup>
         </Col>
       </Row>
 
-      {/* LOADING / ERROR / CONTENT */}
+      {/* TABLE LIST + LOADER / ERROR */}
       {loading ? (
         <div className="d-flex justify-content-center p-5">
           <Spinner animation="border" />
@@ -196,36 +257,7 @@ export default function ModelSelectedTab({ selectedModel, checkServer }) {
         <div className="p-4 text-danger">{error}</div>
       ) : (
         <>
-          {/* TOP CONTROLS */}
-          <Row className="mb-4">
-            <Col md={6}>
-              <label className="fw-bold">Select scenario</label>
-              <Form.Select
-                value={selectedWorkset}
-                onChange={(e) => setSelectedWorkset(e.target.value)}
-              >
-                {worksets.map((ws) => (
-                  <option key={ws.Name} value={ws.Name}>
-                    {ws.Name}
-                  </option>
-                ))}
-              </Form.Select>
-            </Col>
-
-            <Col md={6}>
-              <label className="fw-bold">Select output table(s)</label>
-              <InputGroup>
-                <Form.Control
-                  placeholder="Search by name or description..."
-                  value={filter}
-                  onChange={(e) => setFilter(e.target.value)}
-                />
-              </InputGroup>
-            </Col>
-          </Row>
-
-          {/* TABLE LIST */}
-          <Table striped bordered hover responsive>
+          <Table bordered hover responsive striped>
             <thead>
               <tr>
                 <th style={{ width: "60px" }} className="text-center">
@@ -261,9 +293,12 @@ export default function ModelSelectedTab({ selectedModel, checkServer }) {
                       if (e.target.type === "checkbox") return;
                       toggleRow(t.Name);
                     }}
-                    className={isSelected ? "table-row-selected" : ""}
+                    className={isSelected ? "table-active" : ""}
                     style={{
                       cursor: "pointer",
+                      background: isSelected
+                        ? "rgba(0, 120, 215, 0.20)"
+                        : undefined,
                       fontWeight: isSelected ? 700 : 400,
                     }}
                   >
